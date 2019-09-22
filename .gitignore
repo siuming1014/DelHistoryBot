@@ -1,3 +1,5 @@
-
+*.zip
 docker-compose.yml
 ngrok
+*.DS_Store
+.idea/*
