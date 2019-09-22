@@ -19,7 +19,7 @@ services:
       MONGO_PORT: 27017
       MONGO_USER: root
       MONGO_PASSWORD: example
-      TG_BOT_TOKEN: 847708851:AAFOjM3ArUmSTeSJWL3v4opc95Qna8U-IPw
+      TG_BOT_TOKEN: <token>
     ports:
       - 80:5000
     command: bash -c "python /src/main.py && python /src/cronjob.py"
