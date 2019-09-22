@@ -3,11 +3,21 @@ import telegram
 from telegram.ext import CommandHandler, MessageHandler, Filters, Updater
 import datetime
 import pymongo
+from urllib.parse import quote_plus
+import os
 
+
+user = os.environ.get('MONGO_USER') or "root"
+password = os.environ.get('MONGO_PASSWORD') or "example"
+host = os.environ.get('MONGO_HOST') or "localhost"
+port = os.environ.get('MONGO_PORT') or 27017
+
+token = os.environ.get('TG_BOT_TOKEN')
 
 app = Flask(__name__)
-bot = telegram.Bot(token="<TOKEN>")
-mongo_client = pymongo.MongoClient("<MONGO>")
+bot = telegram.Bot(token=token)
+mongo_client = pymongo.MongoClient("mongodb://%s:%s@%s" % (
+                quote_plus(user), quote_plus(password), f'{host}:{port}'))
 db = mongo_client["tgbot"]
 msg = db["tg-pending"]
 timer = db["tg-timer"]
@@ -15,9 +25,11 @@ timer = db["tg-timer"]
 defaultDestruct = -1
 destroyTimers = {}
 
+
 @app.route('/status')
 def show_status():
     return 'Pending to be deleted: '+str(msg.count_documents({}))+' messages. <br>'+str(destroyTimers)
+
 
 @app.route('/process_queue')
 def process_queue():
@@ -35,6 +47,7 @@ def process_queue():
                 pass    
     return 'Deleted '+str(deleted)+' messages.'
 
+
 @app.route('/hook',methods=['POST'])
 def webhook_handler():
     if request.method == "POST":
@@ -42,9 +55,11 @@ def webhook_handler():
         dispatcher.process_update(update)
     return 'ok'
 
+
 def check_user_admin(bot, chat_id, user_id):
     member = bot.get_chat_member(chat_id, user_id)
     return (member.status in ["creator", "administrator"])
+
 
 def check_bot_admin(bot, chat_id):
     self_id = bot.get_me().id
@@ -54,6 +69,7 @@ def check_bot_admin(bot, chat_id):
         if str(admin.user.id) == str(self_id):
             admin_flag = True
     return admin_flag
+
 
 def status(bot, update):
     chat_id = update.message.chat_id
@@ -71,6 +87,7 @@ def status(bot, update):
         output = output + tmp['chat_id'] + ': ' +str(tmp['timer'])+"\n"
     bot.send_message(chat_id=chat_id, text=output)
 
+
 def off_timer(bot, update):
     global destroyTimers
     chat_id = update.message.chat_id
@@ -81,6 +98,7 @@ def off_timer(bot, update):
         bot.send_message(chat_id=chat_id, text='Self-destruct timer is switched off.')
     else:
         bot.send_message(chat_id=chat_id, text='Bot settings can only be changed by group admins.')
+
 
 def set_timer(bot, update, args):
     global destroyTimers
@@ -103,6 +121,7 @@ def set_timer(bot, update, args):
         except (IndexError, ValueError):
             bot.send_message(chat_id=chat_id, text='Usage: /destroytimer <minutes>')
 
+
 def msg_handler(bot, update):
     global destroyTimers
     chat_id = update.message.chat_id
@@ -121,15 +140,18 @@ def msg_handler(bot, update):
         e = dt.timestamp()+chat_timer*60
         msg.insert_one({'chat_id': chat_id, 'msg_id': msg_id, 'expiry': e})
 
-updater = Updater(bot=bot,workers=0)
+
+updater = Updater(bot=bot, workers=0)
 dispatcher = updater.dispatcher
 dispatcher.add_handler(CommandHandler("status", status))
 dispatcher.add_handler(CommandHandler("destroyoff", off_timer))
 dispatcher.add_handler(CommandHandler("destroytimer", set_timer, pass_args=True))
 dispatcher.add_handler(MessageHandler(Filters.all, msg_handler))
 
+
 def main():
-    app.run()
+    app.run(host='0.0.0.0', ssl_context='adhoc')
+
 
 if __name__ == '__main__':
     main()
