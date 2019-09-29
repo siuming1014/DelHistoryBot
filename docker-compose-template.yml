@@ -22,4 +22,4 @@ services:
       TG_BOT_TOKEN: <token>
     ports:
       - 80:5000
-    command: bash -c "python /src/main.py && python /src/cronjob.py"
+    command: bash -c "python /src/main.py"

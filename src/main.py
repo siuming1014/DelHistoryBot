@@ -5,6 +5,8 @@ import datetime
 import pymongo
 from urllib.parse import quote_plus
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 
 user = os.environ.get('MONGO_USER') or "root"
@@ -31,7 +33,7 @@ def show_status():
     return 'Pending to be deleted: '+str(msg.count_documents({}))+' messages. <br>'+str(destroyTimers)
 
 
-@app.route('/process_queue')
+# @app.route('/process_queue')
 def process_queue():
     timeNow = datetime.datetime.now().timestamp()
     deleted = 0
@@ -48,7 +50,7 @@ def process_queue():
     return 'Deleted '+str(deleted)+' messages.'
 
 
-@app.route('/hook',methods=['POST'])
+@app.route('/hook', methods=['POST'])
 def webhook_handler():
     if request.method == "POST":
         update = telegram.Update.de_json(request.get_json(force=True), bot)
@@ -122,6 +124,48 @@ def set_timer(bot, update, args):
             bot.send_message(chat_id=chat_id, text='Usage: /destroytimer <minutes>')
 
 
+def delete_all(bot, update):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    # bot.send_message(chat_id=chat_id, text=f'chat_id={chat_id}\nuser_id={user_id}')
+    if not check_bot_admin(bot, chat_id):
+        bot.send_message(chat_id=chat_id,
+                         text='DelHistoryBot must be promoted to group admin. Only admins can delete messages. Follow these instructions to add admin:')
+        bot.send_photo(chat_id=chat_id, photo="https://i.imgur.com/90E0DO0.png")
+    elif not check_user_admin(bot, chat_id, user_id):
+        bot.send_message(chat_id=chat_id, text='Only group admins can trigger delete all.')
+    else:
+        deleted = 0
+        while True:
+            result = msg.find_one_and_delete({'chat_id': str(chat_id)})
+            if result is None:
+                # bot.send_message(chat_id=chat_id, text='no msg found')
+                break
+            else:
+                # bot.send_message(chat_id=chat_id, text=f'msg found, result={str(result)}')
+                try:
+                    msg_deleted = bot.delete_message(result["chat_id"], result["msg_id"])
+                    deleted = deleted + 1
+                    # bot.send_message(chat_id=chat_id, text='msg deleted')
+                except:
+                    # bot.send_message(chat_id=chat_id, text='msg delete failed')
+                    pass
+        # bot.send_message(chat_id=chat_id, text='Deleted ' + str(deleted) + ' messages.')
+
+
+def help(bot, update):
+    print_str = """Before use:
+Invite @DelHistoryBot to your group chat
+Promote @DelHistoryBot to be group admin
+Functions:
+/help: print usage guidelines
+/destroytimer <minutes>: enable timer in minutes, max minutes=2875 (about 2 days)
+/destroyoff: disable timer
+/destroynow: delete all messages pending for delete immediately"""
+    chat_id = update.message.chat_id
+    bot.send_message(chat_id=chat_id, text=print_str)
+
+
 def msg_handler(bot, update):
     global destroyTimers
     chat_id = update.message.chat_id
@@ -138,7 +182,7 @@ def msg_handler(bot, update):
             destroyTimers[str(chat_id)] = chat_timer
     if (chat_timer>0):
         e = dt.timestamp()+chat_timer*60
-        msg.insert_one({'chat_id': chat_id, 'msg_id': msg_id, 'expiry': e})
+        msg.insert_one({'chat_id': str(chat_id), 'msg_id': msg_id, 'expiry': e})
 
 
 updater = Updater(bot=bot, workers=0)
@@ -146,11 +190,27 @@ dispatcher = updater.dispatcher
 dispatcher.add_handler(CommandHandler("status", status))
 dispatcher.add_handler(CommandHandler("destroyoff", off_timer))
 dispatcher.add_handler(CommandHandler("destroytimer", set_timer, pass_args=True))
+dispatcher.add_handler(CommandHandler("destroynow", delete_all))
+dispatcher.add_handler(CommandHandler("help", help))
 dispatcher.add_handler(MessageHandler(Filters.all, msg_handler))
 
 
 def main():
-    app.run(host='0.0.0.0', ssl_context='adhoc')
+    # print('='*100)
+    # print('running version 0.0.1')
+    # print('='*100)
+    def process_queue_job():
+        while True:
+            time.sleep(60)
+            try:
+                print(process_queue())
+            except Exception as e:
+                print(e)
+
+    executor = ThreadPoolExecutor()
+    _ = executor.submit(process_queue_job)
+
+    app.run(host='0.0.0.0')
 
 
 if __name__ == '__main__':
